@@ -471,6 +471,8 @@ struct v4l2_subdev_video_ops {
 			   unsigned int *size);
 	int (*pre_streamon)(struct v4l2_subdev *sd, u32 flags);
 	int (*post_streamoff)(struct v4l2_subdev *sd);
+	int (*g_parm)(struct v4l2_subdev *sd, struct v4l2_streamparm *param);
+	int (*s_parm)(struct v4l2_subdev *sd, struct v4l2_streamparm *param);	
 };
 
 /**

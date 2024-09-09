@@ -156,6 +156,7 @@ struct sdhci_tegra_soc_data {
 	u32 nvquirks;
 	u8 min_tap_delay;
 	u8 max_tap_delay;
+	unsigned int min_host_clk;
 };
 
 /* Magic pull up and pull down pad calibration offsets */
@@ -338,7 +339,17 @@ static bool tegra_sdhci_is_pad_and_regulator_valid(struct sdhci_host *host)
 	if (!(tegra_host->soc_data->nvquirks & NVQUIRK_NEEDS_PAD_CONTROL))
 		return true;
 
-	if (IS_ERR(host->mmc->supply.vqmmc))
+	/*
+	 * T19x onwards, pad control is supported through PMC and does not depend on the
+	 * VQMMC supplies. SDMMC pads are fed with always on 1.8v and 3.3V supplies that help
+	 * to switch between the signaling voltages based on the PMC register field.
+	 * Return true even if VQMMC regulator is not populated in the DT
+	 */
+
+	if (PTR_ERR(host->mmc->supply.vqmmc) == -ENODEV)
+		return true;
+
+	if (IS_ERR_OR_NULL(host->mmc->supply.vqmmc))
 		return false;
 
 	has_1v8 = regulator_is_supported_voltage(host->mmc->supply.vqmmc,
@@ -799,6 +810,8 @@ static void tegra_sdhci_set_clock(struct sdhci_host *host, unsigned int clock)
 	 */
 	host_clk = tegra_host->ddr_signaling ? clock * 2 : clock;
 
+	if (host_clk < tegra_host->soc_data->min_host_clk)
+		host_clk = tegra_host->soc_data->min_host_clk;
 	err = dev_pm_opp_set_rate(dev, host_clk);
 	if (err)
 		dev_err(dev, "failed to set clk rate to %luHz: %d\n",
@@ -1058,7 +1071,6 @@ static void tegra_sdhci_set_uhs_signaling(struct sdhci_host *host,
 		set_dqs_trim = true;
 		do_hs400_dll_cal = true;
 		iter = TRIES_128;
-		set_padpipe_clk_override = true;
 		break;
 	case MMC_TIMING_MMC_DDR52:
 	case MMC_TIMING_UHS_DDR50:
@@ -1620,6 +1632,7 @@ static const struct sdhci_tegra_soc_data soc_data_tegra234 = {
 		    NVQUIRK_HAS_TMCLK,
 	.min_tap_delay = 95,
 	.max_tap_delay = 111,
+	.min_host_clk = 20000000,
 };
 
 static const struct of_device_id sdhci_tegra_dt_match[] = {
@@ -1762,6 +1775,9 @@ static int sdhci_tegra_probe(struct platform_device *pdev)
 
 	/* HW busy detection is supported, but R1B responses are required. */
 	host->mmc->caps |= MMC_CAP_WAIT_WHILE_BUSY | MMC_CAP_NEED_RSP_BUSY;
+
+	/* GPIO CD can be set as a wakeup source */
+	host->mmc->caps |= MMC_CAP_CD_WAKE;
 
 	tegra_sdhci_parse_dt(host);
 
@@ -1932,13 +1948,17 @@ static int sdhci_tegra_suspend(struct device *dev)
 		cqhci_resume(host->mmc);
 		return ret;
 	}
-	return 0;
+	return mmc_gpio_set_cd_wake(host->mmc, true);
 }
 
 static int sdhci_tegra_resume(struct device *dev)
 {
 	struct sdhci_host *host = dev_get_drvdata(dev);
 	int ret;
+
+	ret = mmc_gpio_set_cd_wake(host->mmc, false);
+	if (ret)
+		return ret;
 
 	ret = pm_runtime_force_resume(dev);
 	if (ret)

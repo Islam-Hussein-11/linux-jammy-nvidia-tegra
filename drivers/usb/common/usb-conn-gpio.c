@@ -20,9 +20,10 @@
 #include <linux/power_supply.h>
 #include <linux/regulator/consumer.h>
 #include <linux/usb/role.h>
-
+#include <linux/delay.h>
 #define USB_GPIO_DEB_MS		20	/* ms */
 #define USB_GPIO_DEB_US		((USB_GPIO_DEB_MS) * 1000)	/* us */
+#define ORIN_NX_GPIO_DELAY_US 10000 //Added to solve reading of invalid value from tegra_main_gpio at bootup
 
 #define USB_CONN_IRQF	\
 	(IRQF_TRIGGER_RISING | IRQF_TRIGGER_FALLING | IRQF_ONESHOT)
@@ -39,9 +40,10 @@ struct usb_conn_info {
 	struct gpio_desc *vbus_gpiod;
 	int id_irq;
 	int vbus_irq;
-
+	int init_delay_us; //delay for gpios
 	struct power_supply_desc desc;
 	struct power_supply *charger;
+	bool initial_detection;
 };
 
 /*
@@ -70,6 +72,10 @@ static void usb_conn_detect_cable(struct work_struct *work)
 	info = container_of(to_delayed_work(work),
 			    struct usb_conn_info, dw_det);
 
+     //delay for ORIN-NX fix (Tegra-main-gpio takes time to go up).
+    info->init_delay_us=ORIN_NX_GPIO_DELAY_US;
+    udelay(info->init_delay_us);
+
 	/* check ID and VBUS */
 	id = info->id_gpiod ?
 		gpiod_get_value_cansleep(info->id_gpiod) : 1;
@@ -83,13 +89,15 @@ static void usb_conn_detect_cable(struct work_struct *work)
 	else
 		role = USB_ROLE_NONE;
 
-	dev_dbg(info->dev, "role %s -> %s, gpios: id %d, vbus %d\n",
+	dev_info(info->dev, "role %s -> %s, gpios: id %d, vbus %d\n",
 		usb_role_string(info->last_role), usb_role_string(role), id, vbus);
 
-	if (info->last_role == role) {
+	if (!info->initial_detection && info->last_role == role) {
 		dev_warn(info->dev, "repeated role: %s\n", usb_role_string(role));
 		return;
 	}
+
+	info->initial_detection = false;
 
 	if (info->last_role == USB_ROLE_HOST && info->vbus)
 		regulator_disable(info->vbus);
@@ -273,6 +281,7 @@ static int usb_conn_probe(struct platform_device *pdev)
 	platform_set_drvdata(pdev, info);
 
 	/* Perform initial detection */
+	info->initial_detection = true;
 	usb_conn_queue_dwork(info, 0);
 
 	return 0;

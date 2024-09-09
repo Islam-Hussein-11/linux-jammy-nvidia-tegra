@@ -67,6 +67,7 @@ CONFIG_ARCH_INLINE_WRITE_UNLOCK_IRQRESTORE      policy<{'arm64': '-', 'arm64-nvi
 CONFIG_BINFMT_MISC                              policy<{'arm64': 'y'}>
 CONFIG_CC_HAS_UBSAN_BOUNDS                      policy<{'arm64': '-'}>
 CONFIG_CEC_GPIO                                 policy<{'arm64': 'n', 'arm64-nvidia-tegra': '-', 'arm64-nvidia-tegra-rt': 'm'}>
+CONFIG_CRYPTO_DEV_TEGRA                         policy<{'arm64': 'm'}>
 CONFIG_CRYPTO_SUPPORT_TEGRA_TESTS               policy<{'arm64': 'n'}>
 CONFIG_DEBUG_MUTEXES                            policy<{'arm64': '-', 'arm64-nvidia-tegra': 'n'}>
 CONFIG_DEBUG_PREEMPT                            policy<{'arm64': 'y', 'arm64-nvidia-tegra': '-', 'arm64-nvidia-tegra-rt': 'n'}>
@@ -106,6 +107,7 @@ CONFIG_LEDS_TRIGGER_CPU                         policy<{'arm64': '-', 'arm64-nvi
 CONFIG_MESON_SECURE_PM_DOMAINS                  policy<{'arm64': 'y'}>
 CONFIG_MESON_SM                                 policy<{'arm64': 'y'}>
 CONFIG_NET_RX_BUSY_POLL                         policy<{'arm64': '-', 'arm64-nvidia-tegra': 'y'}>
+CONFIG_NTFS_FS                                  policy<{'arm64': 'y'}>
 CONFIG_NUMA_BALANCING                           policy<{'arm64': '-', 'arm64-nvidia-tegra': 'n'}>
 CONFIG_PINCTRL_TEGRA234                         policy<{'arm64': 'y'}>
 CONFIG_PREEMPTION                               policy<{'arm64': 'y', 'arm64-nvidia-tegra': '-'}>
@@ -151,6 +153,7 @@ CONFIG_TEGRA_HOST1X_CONTEXT_BUS                 policy<{'arm64': 'y'}>
 CONFIG_TEGRA_HSIERRRPTINJ                       policy<{'arm64': 'y'}>
 CONFIG_TEGRA_PLATFORM_DEVICES                   policy<{'arm64': 'y'}>
 CONFIG_TEGRA_PROD_ENABLE                        policy<{'arm64': 'y'}>
+CONFIG_TEGRA_PROD_LEGACY                        policy<{'arm64': 'y'}>
 CONFIG_TEST_UBSAN                               policy<{'arm64': '-'}>
 CONFIG_TRANSPARENT_HUGEPAGE                     policy<{'arm64': '-', 'arm64-nvidia-tegra': 'n'}>
 CONFIG_UBSAN_ALIGNMENT                          policy<{'arm64': '-'}>

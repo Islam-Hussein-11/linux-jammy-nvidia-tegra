@@ -19,6 +19,8 @@
 
 #include "aquantia.h"
 
+#define DEBUG 1
+
 #define PHY_ID_AQ1202	0x03a1b445
 #define PHY_ID_AQ2104	0x03a1b460
 #define PHY_ID_AQR105	0x03a1b4a2
@@ -27,6 +29,7 @@
 #define PHY_ID_AQCS109	0x03a1b5c2
 #define PHY_ID_AQR405	0x03a1b4b0
 #define PHY_ID_AQR113C	0x31c31c12
+#define PHY_ID_AQR113   0x31c31c42
 
 #define MDIO_AN_PAUSE                  BIT(10)
 #define MDIO_AN_ASYM_PAUSE             BIT(11)
@@ -119,6 +122,7 @@
 /* Vendor specific 1, MDIO_MMD_VEND1 */
 #define VEND1_GLOBAL_FW_ID			0x0020
 #define VEND1_GLOBAL_FW_ID_MAJOR		GENMASK(15, 8)
+#define VEND1_GLOBAL_FW_ID_MASK			GENMASK(15, 0)
 #define VEND1_GLOBAL_FW_ID_MINOR		GENMASK(7, 0)
 
 #define VEND1_GLOBAL_GEN_STAT2			0xc831
@@ -157,6 +161,9 @@
 #define VEND1_GLOBAL_INT_VEND_MASK_GLOBAL1	BIT(2)
 #define VEND1_GLOBAL_INT_VEND_MASK_GLOBAL2	BIT(1)
 #define VEND1_GLOBAL_INT_VEND_MASK_GLOBAL3	BIT(0)
+
+#define VEND1_GLOBAL_CMN_POR_CTRL	0x2681U
+#define PHY_RESET			BIT(0)
 
 /* Sleep and timeout for checking if the Processor-Intensive
  * MDIO operation is finished
@@ -428,7 +435,7 @@ static irqreturn_t aqr_handle_interrupt(struct phy_device *phydev)
 {
 	int reg, val, ret;
 	int irq_status;
-	
+
 	struct aqr107_priv *priv = phydev->priv;
 	reg = phy_read_mmd(phydev, MDIO_MMD_C22EXT, MDIO_C22EXT_GBE_PHY_SGMII_TX_ALARM1);
 	if ((reg & MDIO_C22EXT_SGMII0_MAGIC_PKT_FRAME_MASK) ==
@@ -644,9 +651,17 @@ static int aqr107_wait_reset_complete(struct phy_device *phydev)
 {
 	int val;
 
+
 	return phy_read_mmd_poll_timeout(phydev, MDIO_MMD_VEND1,
 					 VEND1_GLOBAL_FW_ID, val, val != 0,
 					 20000, 2000000, false);
+	//Possibly causes the LEDs not to function properly
+
+/*	return phy_read_mmd_poll_timeout(phydev, MDIO_MMD_VEND1,
+					 VEND1_GLOBAL_FW_ID, val,
+					 ((val & VEND1_GLOBAL_FW_ID_MASK) != 0 &&
+					 (val & VEND1_GLOBAL_FW_ID_MASK) != VEND1_GLOBAL_FW_ID_MASK),
+					 20000, 2000000, false);*/
 }
 
 static void aqr107_chip_info(struct phy_device *phydev)
@@ -675,7 +690,6 @@ static void aqr107_chip_info(struct phy_device *phydev)
 static void aqr_apply_led_mode_cfg(struct phy_device *phydev)
 {
 	struct aqr107_priv *priv = phydev->priv;
-
 	if (priv->led_mode0 > 0)
 		phy_write_mmd(phydev, MDIO_MMD_VEND1, 0xc430, priv->led_mode0);
 
@@ -711,8 +725,10 @@ static int aqr_read_led_mode_cfg(struct phy_device *phydev)
 
 			err = of_property_read_u32_array(node, "aquantia,led-mode",
 							 &led_modes[0], n);
-			if (err)
+			if (err){
+				phydev_info(phydev,"Couldn't get aquantia,led-mode property!\n");
 				return err;
+			}
 
 			for (i = 0; i < n; i += 2) {
 				if (led_modes[i] > 2) {
@@ -724,10 +740,10 @@ static int aqr_read_led_mode_cfg(struct phy_device *phydev)
 				case 0:
 					priv->led_mode0 = led_modes[i + 1];
 					break;
-				case 2:
+				case 1:
 					priv->led_mode1 = led_modes[i + 1];
 					break;
-				case 4:
+				case 2:
 					priv->led_mode2 = led_modes[i + 1];
 					break;
 				default:
@@ -754,6 +770,12 @@ static int aqr107_config_init(struct phy_device *phydev)
 
 	WARN(phydev->interface == PHY_INTERFACE_MODE_XGMII,
 	     "Your devicetree is out of date, please update it. The AQR107 family doesn't support XGMII, maybe you mean USXGMII.\n");
+
+	/* SW WAR to reset PHY again to overcome link issues caused during boot */
+	//err = phy_write_mmd(phydev, MDIO_MMD_VEND1, VEND1_GLOBAL_CMN_POR_CTRL, PHY_RESET);
+	
+	//if (err < 0)
+	//	return err;
 
 	ret = aqr107_wait_reset_complete(phydev);
 	if (!ret)
@@ -909,7 +931,7 @@ static int aqr107_suspend(struct phy_device *phydev)
 
 	if (priv->skip_lpm)
 		return 0;
-	
+
 	err = phy_set_bits_mmd(phydev, MDIO_MMD_VEND1, MDIO_CTRL1,
 			       MDIO_CTRL1_LPOWER);
 	if (err)
@@ -1183,6 +1205,26 @@ static struct phy_driver aqr_driver[] = {
 	.set_wol	= &aqr113c_set_wol,
 },
 {
+   PHY_ID_MATCH_MODEL(PHY_ID_AQR113),
+   .name       = "Aquantia AQR113",
+   .probe      = aqr107_probe,
+   .config_init    = aqr107_config_init,
+   .config_aneg    = aqr_config_aneg,
+   .config_intr    = aqr_config_intr,
+   .handle_interrupt = aqr_handle_interrupt,
+   .read_status    = aqr107_read_status,
+   .get_tunable    = aqr107_get_tunable,
+   .set_tunable    = aqr107_set_tunable,
+   .suspend    = aqr107_suspend,
+   .resume     = aqr107_resume,
+   .get_sset_count = aqr107_get_sset_count,
+   .get_strings    = aqr107_get_strings,
+   .get_stats  = aqr107_get_stats,
+   .link_change_notify = aqr107_link_change_notify,
+   .get_wol    = &aqr113c_get_wol,
+   .set_wol    = &aqr113c_set_wol,
+},
+{
 	PHY_ID_MATCH_MODEL(PHY_ID_AQR405),
 	.name		= "Aquantia AQR405",
 	.config_aneg    = aqr_config_aneg,
@@ -1203,6 +1245,7 @@ static struct mdio_device_id __maybe_unused aqr_tbl[] = {
 	{ PHY_ID_MATCH_MODEL(PHY_ID_AQCS109) },
 	{ PHY_ID_MATCH_MODEL(PHY_ID_AQR405) },
 	{ PHY_ID_MATCH_MODEL(PHY_ID_AQR113C) },
+	{ PHY_ID_MATCH_MODEL(PHY_ID_AQR113) },
 	{ }
 };
 
